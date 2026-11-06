@@ -208,3 +208,155 @@ def test_invalid_max_chunk_size_is_rejected():
         assert False, "Expected ValueError"
     except ValueError:
         pass
+def test_oversized_class_is_split_into_method_chunks():
+    class_source = (
+        "class BankAccount:\n"
+        "    balance = 0\n"
+        "\n"
+        "    def deposit(self, amount):\n"
+        "        self.balance += amount\n"
+        "        return self.balance\n"
+        "\n"
+        "    def withdraw(self, amount):\n"
+        "        self.balance -= amount\n"
+        "        return self.balance\n"
+    )
+
+    class_symbol = make_symbol(
+        "class",
+        "BankAccount",
+        class_source,
+        1,
+        10,
+    )
+
+    deposit_method = make_symbol(
+        "method",
+        "deposit",
+        (
+            "    def deposit(self, amount):\n"
+            "        self.balance += amount\n"
+            "        return self.balance"
+        ),
+        4,
+        6,
+        parent_class="BankAccount",
+    )
+
+    withdraw_method = make_symbol(
+        "method",
+        "withdraw",
+        (
+            "    def withdraw(self, amount):\n"
+            "        self.balance -= amount\n"
+            "        return self.balance"
+        ),
+        8,
+        10,
+        parent_class="BankAccount",
+    )
+
+    result = make_parsed_result(
+        [class_symbol, deposit_method, withdraw_method]
+    )
+
+    chunks = chunk_parsed_file(
+        result,
+        max_chunk_size=120,
+    )
+
+    method_chunks = [
+        chunk for chunk in chunks
+        if chunk["symbol_type"] == "method"
+    ]
+
+    assert len(method_chunks) == 2
+    context_chunks = [
+        chunk for chunk in chunks
+        if chunk["symbol_type"] == "class_context"
+    ]
+
+    assert len(context_chunks) >= 1
+
+    context_content = "".join(
+        chunk["content"] for chunk in context_chunks
+    )
+
+    assert "class BankAccount:" in context_content
+    assert "balance = 0" in context_content
+    assert {
+        chunk["symbol_name"] for chunk in method_chunks
+    } == {"deposit", "withdraw"}
+
+    assert all(
+        chunk["parent_class"] == "BankAccount"
+        for chunk in method_chunks
+    )
+
+    assert all(
+        chunk["start_line"] >= 1
+        and chunk["end_line"] >= chunk["start_line"]
+        for chunk in chunks
+    )
+def test_oversized_method_preserves_parent_class_and_line_numbers():
+    method_source = (
+        "    def calculate(self):\n"
+        "        first = 10\n"
+        "        second = 20\n"
+        "        third = 30\n"
+        "        return first + second + third"
+    )
+
+    method = make_symbol(
+        "method",
+        "calculate",
+        method_source,
+        5,
+        9,
+        parent_class="Calculator",
+    )
+
+    class_symbol = make_symbol(
+        "class",
+        "Calculator",
+        (
+            "class Calculator:\n"
+            "    pass\n"
+        ),
+        1,
+        2,
+    )
+
+    result = make_parsed_result([class_symbol, method])
+
+    # The class is small, so this test needs a large class source
+    # to exercise the oversized-class splitting path.
+    class_symbol["source"] = (
+        "class Calculator:\n"
+        "    pass\n"
+        + "\n" * 3
+        + method_source
+        + "\n"
+    )
+    class_symbol["end_line"] = 10
+
+    chunks = chunk_parsed_file(result, max_chunk_size=40)
+
+    method_chunks = [
+        chunk for chunk in chunks
+        if chunk["symbol_type"] == "method"
+    ]
+
+    assert len(method_chunks) > 1
+
+    assert all(
+        chunk["parent_class"] == "Calculator"
+        for chunk in method_chunks
+    )
+
+    assert method_chunks[0]["start_line"] == 5
+    assert method_chunks[-1]["end_line"] == 9
+
+    assert [
+        chunk["chunk_index"] for chunk in chunks
+    ] == list(range(len(chunks)))

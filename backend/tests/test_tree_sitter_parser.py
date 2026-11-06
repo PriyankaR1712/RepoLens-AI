@@ -2,7 +2,7 @@
 from app.services.analysis.tree_sitter_parser import (
     parse_tree_sitter_file,
 )
-
+from app.services.chunking.code_chunker import chunk_parsed_file
 
 def test_parse_javascript_function():
     source = """function greet(name) {
