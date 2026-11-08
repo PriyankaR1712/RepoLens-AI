@@ -6,3 +6,5 @@ python-dotenv
 alembic
 PyGithub
 tree-sitter-language-pack
+sentence-transformers
+chromadb
