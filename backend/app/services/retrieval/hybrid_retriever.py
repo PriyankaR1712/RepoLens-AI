@@ -1,5 +1,6 @@
 
 from typing import Any
+from unittest import result
 
 from app.services.retrieval.bm25_retriever import BM25Retriever
 
@@ -13,6 +14,7 @@ class HybridRetriever:
         embedding_service: Any,
         bm25_retriever: BM25Retriever | None = None,
         rrf_k: int = 60,
+        reranker: Any = None,
     ) -> None:
         if not isinstance(rrf_k, int) or isinstance(rrf_k, bool) or rrf_k <= 0:
             raise ValueError("rrf_k must be a positive integer.")
@@ -21,6 +23,7 @@ class HybridRetriever:
         self.embedding_service = embedding_service
         self.bm25_retriever = bm25_retriever or BM25Retriever(vector_store)
         self.rrf_k = rrf_k
+        self.reranker = reranker
 
     def retrieve(
         self,
@@ -121,6 +124,20 @@ class HybridRetriever:
             key=lambda item: item["rrf_score"],
             reverse=True,
         )
+        if not ranked_results:
+            return []
+
+        if self.reranker is not None:
+            return self.reranker.rerank(
+                query=query,
+                documents=ranked_results,
+                top_k=top_k,
+            )
+
+        for rank, result in enumerate(ranked_results, start=1):
+          result["rank"] = rank
+
+        return ranked_results[:top_k]
 
         for rank, result in enumerate(ranked_results, start=1):
             result["rank"] = rank

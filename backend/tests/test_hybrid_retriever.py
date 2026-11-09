@@ -80,7 +80,6 @@ def test_hybrid_retriever_fuses_rankings(dependencies):
 
     results = retriever.retrieve("repo123", "battery health")
 
-    # chunk2 appears in both retrieval lists.
     assert results[0]["id"] == "chunk2"
     assert results[0]["semantic_distance"] == 0.2
     assert results[0]["bm25_score"] == 2.5
@@ -161,3 +160,70 @@ def test_hybrid_retriever_rejects_invalid_embedding(dependencies):
 
     with pytest.raises(ValueError, match="invalid result"):
         retriever.retrieve("repo123", "battery health")
+
+
+def test_hybrid_retriever_uses_cross_encoder(dependencies):
+    retriever, _, _, _ = dependencies
+
+    reranker = Mock()
+    reranker.rerank.return_value = [
+        {
+            "id": "chunk3",
+            "content": "battery capacity calculation",
+            "metadata": {"file_path": "capacity.py"},
+            "rrf_score": 0.02,
+            "rerank_score": 0.95,
+            "rank": 1,
+        }
+    ]
+
+    retriever.reranker = reranker
+
+    results = retriever.retrieve(
+        "repo123",
+        "battery health",
+        top_k=1,
+    )
+
+    reranker.rerank.assert_called_once()
+
+    assert reranker.rerank.call_args.kwargs["query"] == "battery health"
+    assert len(reranker.rerank.call_args.kwargs["documents"]) == 3
+    assert reranker.rerank.call_args.kwargs["top_k"] == 1
+
+    assert results[0]["id"] == "chunk3"
+    assert results[0]["rerank_score"] == 0.95
+
+
+def test_hybrid_retriever_works_without_cross_encoder(dependencies):
+    retriever, _, _, _ = dependencies
+
+    assert retriever.reranker is None
+
+    results = retriever.retrieve(
+        "repo123",
+        "battery health",
+        top_k=2,
+    )
+
+    assert len(results) == 2
+    assert all("rrf_score" in result for result in results)
+    assert all("rerank_score" not in result for result in results)
+
+
+def test_hybrid_retriever_returns_empty_when_no_candidates(dependencies):
+    retriever, vector_store, _, bm25_retriever = dependencies
+
+    reranker = Mock()
+    retriever.reranker = reranker
+
+    vector_store.search.return_value = []
+    bm25_retriever.retrieve.return_value = []
+
+    results = retriever.retrieve(
+        "repo123",
+        "battery health",
+    )
+
+    assert results == []
+    reranker.rerank.assert_not_called()
