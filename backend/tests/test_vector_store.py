@@ -228,3 +228,102 @@ def test_invalid_embedding_is_rejected(vector_store):
 
     with pytest.raises(ValueError):
         vector_store.add_chunks("owner/repository", [chunk])
+
+
+def test_sync_chunks_removes_obsolete_chunks(
+    vector_store,
+    sample_chunks,
+):
+    repository_id = "owner/repository"
+
+    vector_store.add_chunks(repository_id, sample_chunks)
+
+    updated_chunks = [sample_chunks[0]]
+
+    indexed_count = vector_store.sync_chunks(
+        repository_id,
+        updated_chunks,
+    )
+
+    collection = vector_store.get_or_create_collection(repository_id)
+
+    assert indexed_count == 1
+    assert collection.count() == 1
+
+    results = vector_store.search(
+        repository_id,
+        [0.1, 0.2, 0.3, 0.4],
+    )
+
+    assert len(results) == 1
+    assert results[0]["metadata"]["file_path"] == "app/main.py"
+
+
+def test_sync_chunks_updates_existing_chunks(
+    vector_store,
+    sample_chunks,
+):
+    repository_id = "owner/repository"
+
+    vector_store.add_chunks(repository_id, sample_chunks)
+
+    updated_chunk = {
+        **sample_chunks[0],
+        "content": "def calculate_total(items):\n    return 100",
+    }
+
+    vector_store.sync_chunks(
+        repository_id,
+        [updated_chunk],
+    )
+
+    results = vector_store.search(
+        repository_id,
+        [0.1, 0.2, 0.3, 0.4],
+    )
+
+    assert len(results) == 1
+    assert results[0]["content"] == updated_chunk["content"]
+
+
+def test_sync_empty_chunks_removes_all_existing_chunks(
+    vector_store,
+    sample_chunks,
+):
+    repository_id = "owner/repository"
+
+    vector_store.add_chunks(repository_id, sample_chunks)
+
+    indexed_count = vector_store.sync_chunks(
+        repository_id,
+        [],
+    )
+
+    collection = vector_store.get_or_create_collection(repository_id)
+
+    assert indexed_count == 0
+    assert collection.count() == 0
+
+
+def test_sync_chunks_preserves_existing_data_on_validation_failure(
+    vector_store,
+    sample_chunks,
+):
+    repository_id = "owner/repository"
+
+    vector_store.add_chunks(repository_id, sample_chunks)
+
+    invalid_chunk = {
+        **sample_chunks[0],
+        "embedding": [],
+    }
+
+    with pytest.raises(ValueError):
+        vector_store.sync_chunks(
+            repository_id,
+            [invalid_chunk],
+        )
+
+    collection = vector_store.get_or_create_collection(repository_id)
+
+    assert collection.count() == 2

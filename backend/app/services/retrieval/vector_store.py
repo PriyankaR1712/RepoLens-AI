@@ -135,6 +135,49 @@ class VectorStore:
         )
 
         return len(ids)
+    def sync_chunks(
+        self,
+        repository_id: str,
+        chunks: list[dict[str, Any]],
+    ) -> int:
+        """Synchronize a repository collection with its complete new index."""
+
+        if not isinstance(chunks, list):
+            raise ValueError("chunks must be a list.")
+
+        # Validate the repository and obtain its collection,
+        # even when the new index contains no chunks.
+        collection = self.get_or_create_collection(repository_id)
+
+        # Store or update all new chunks first.
+        indexed_count = self.add_chunks(repository_id, chunks)
+
+        if indexed_count != len(chunks):
+            raise RuntimeError(
+                "Not all repository chunks were indexed successfully."
+            )
+
+        # Determine the IDs that should exist after synchronization.
+        expected_ids = {
+            f"{chunk['file_path']}:{int(chunk['chunk_index'])}"
+            for chunk in chunks
+        }
+
+        # Retrieve existing IDs from the collection.
+        existing_ids = collection.get()["ids"]
+
+        # Identify chunks that no longer belong to the new index.
+        stale_ids = [
+            chunk_id
+            for chunk_id in existing_ids
+            if chunk_id not in expected_ids
+        ]
+
+        # Delete obsolete chunks only after successful indexing.
+        if stale_ids:
+            collection.delete(ids=stale_ids)
+
+        return indexed_count
 
     def search(
         self,
