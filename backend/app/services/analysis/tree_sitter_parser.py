@@ -138,53 +138,82 @@ class TreeSitterStructureVisitor:
         self.symbols.append(symbol)
 
     def visit(self, node):
-        """Recursively visit syntax tree nodes."""
+        """Visit syntax nodes in source-order depth-first order iteratively."""
+        def enter(current):
+            if current.type in CLASS_NODE_TYPES or current.type in INTERFACE_NODE_TYPES:
+                self.add_symbol(current, "class")
+                self.class_stack.append(self.get_name(current))
+                return "class"
 
-        if node.type in CLASS_NODE_TYPES:
-            self.add_symbol(node, "class")
+            if current.type in FUNCTION_NODE_TYPES:
+                if self.class_stack and not self.function_stack:
+                    symbol_type = "method"
+                elif self.function_stack:
+                    symbol_type = "nested_function"
+                else:
+                    symbol_type = "function"
 
-            class_name = self.get_name(node)
-            self.class_stack.append(class_name)
+                self.add_symbol(current, symbol_type)
+                self.function_stack.append(self.get_name(current))
+                return "function"
 
-            for child in node.named_children:
-                self.visit(child)
+            return None
 
-            self.class_stack.pop()
-            return
+        # A TreeCursor keeps traversal state in Tree-sitter's native tree and
+        # avoids retaining many Python Node wrappers (which triggered a native
+        # GC crash on Windows for a large JSX file). Track only semantic scope
+        # entries in Python. Cursor traversal follows the same preorder as the
+        # former named-child recursion.
+        cursor = node.walk()
+        scopes = []
+        current = cursor.node
 
-        if node.type in INTERFACE_NODE_TYPES:
-            self.add_symbol(node, "class")
+        def goto_first_named_child():
+            if not cursor.goto_first_child():
+                return False
+            while not cursor.node.is_named:
+                if not cursor.goto_next_sibling():
+                    cursor.goto_parent()
+                    return False
+            return True
 
-            class_name = self.get_name(node)
-            self.class_stack.append(class_name)
+        def goto_next_named_sibling():
+            while cursor.goto_next_sibling():
+                if cursor.node.is_named:
+                    return True
+            return False
 
-            for child in node.named_children:
-                self.visit(child)
+        while True:
+            scope = enter(current)
+            scopes.append(scope)
 
-            self.class_stack.pop()
-            return
+            if goto_first_named_child():
+                current = cursor.node
+                continue
 
-        if node.type in FUNCTION_NODE_TYPES:
-            if self.class_stack and not self.function_stack:
-                symbol_type = "method"
-            elif self.function_stack:
-                symbol_type = "nested_function"
-            else:
-                symbol_type = "function"
+            while True:
+                # The current node's subtree is complete.
+                scope = scopes.pop()
+                if scope == "class":
+                    self.class_stack.pop()
+                elif scope == "function":
+                    self.function_stack.pop()
 
-            self.add_symbol(node, symbol_type)
+                if goto_next_named_sibling():
+                    current = cursor.node
+                    break
 
-            function_name = self.get_name(node)
-            self.function_stack.append(function_name)
+                if not cursor.goto_parent():
+                    # Release cursor-backed native wrappers while the tree
+                    # owner is still alive in parse_tree_sitter_file.
+                    scopes.clear()
+                    del current
+                    del cursor
+                    return
 
-            for child in node.named_children:
-                self.visit(child)
-
-            self.function_stack.pop()
-            return
-
-        for child in node.named_children:
-            self.visit(child)
+                # The parent is complete too; unwind it before looking for
+                # its next sibling. Its semantic scope remains active until
+                # this point, matching recursive return behavior.
 
 
 def parse_tree_sitter_file(

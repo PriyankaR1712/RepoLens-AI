@@ -11,6 +11,11 @@ venv/
 # Secrets
 .env
 *.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
 
 # IDE
 .vscode/
@@ -19,6 +24,9 @@ venv/
 chroma_db/
 uploads/
 logs/
+backend/data/
+frontend/node_modules/
+frontend/dist/
 
 # OS
 .DS_Store

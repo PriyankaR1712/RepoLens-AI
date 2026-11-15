@@ -125,6 +125,41 @@ def test_hybrid_retriever_uses_candidate_multiplier(dependencies):
     assert bm25_retriever.retrieve.call_args.kwargs["top_k"] == 15
 
 
+def test_configured_candidate_pool_stays_fifteen_for_seven_final_results():
+    vector_store = Mock()
+    vector_store.search.return_value = [
+        {
+            "id": f"chunk{index}",
+            "content": f"content {index}",
+            "metadata": {"file_path": f"file{index}.py"},
+            "distance": index / 10,
+        }
+        for index in range(7)
+    ]
+    embedding_service = Mock()
+    embedding_service.generate_embeddings.return_value = [
+        {"content": "query", "embedding": [0.1, 0.2]}
+    ]
+    bm25 = Mock()
+    bm25.retrieve.return_value = []
+    reranker = Mock()
+    reranker.rerank.side_effect = lambda query, documents, top_k: documents[:top_k]
+    retriever = HybridRetriever(
+        vector_store=vector_store,
+        embedding_service=embedding_service,
+        bm25_retriever=bm25,
+        reranker=reranker,
+        candidate_k=15,
+    )
+
+    results = retriever.retrieve("repo123", "query", top_k=7)
+
+    assert len(results) == 7
+    assert vector_store.search.call_args.kwargs["top_k"] == 15
+    assert bm25.retrieve.call_args.kwargs["top_k"] == 15
+    assert reranker.rerank.call_args.kwargs["top_k"] == 7
+
+
 @pytest.mark.parametrize(
     "repository_id, query, top_k",
     [

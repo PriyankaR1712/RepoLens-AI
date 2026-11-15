@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.api.repositories import router as repository_router
+from app.api.questions import router as question_router
 
 
 app = FastAPI(
@@ -16,6 +17,7 @@ app = FastAPI(
 
 # Register API routers
 app.include_router(repository_router)
+app.include_router(question_router)
 
 
 @app.get("/")

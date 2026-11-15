@@ -1,6 +1,6 @@
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -44,3 +44,13 @@ class RepositoryResponse(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+
+
+class RepositoryIngestRequest(BaseModel):
+    source_url: str = Field(min_length=1, max_length=2048)
+
+
+class RepositoryIngestResponse(BaseModel):
+    repository: RepositoryResponse
+    ingestion: dict[str, Any]
+    indexing: dict[str, Any]

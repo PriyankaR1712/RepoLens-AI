@@ -15,15 +15,23 @@ class HybridRetriever:
         bm25_retriever: BM25Retriever | None = None,
         rrf_k: int = 60,
         reranker: Any = None,
+        candidate_k: int | None = None,
     ) -> None:
         if not isinstance(rrf_k, int) or isinstance(rrf_k, bool) or rrf_k <= 0:
             raise ValueError("rrf_k must be a positive integer.")
+        if candidate_k is not None and (
+            not isinstance(candidate_k, int)
+            or isinstance(candidate_k, bool)
+            or candidate_k <= 0
+        ):
+            raise ValueError("candidate_k must be a positive integer when provided.")
 
         self.vector_store = vector_store
         self.embedding_service = embedding_service
         self.bm25_retriever = bm25_retriever or BM25Retriever(vector_store)
         self.rrf_k = rrf_k
         self.reranker = reranker
+        self.candidate_k = candidate_k
 
     def retrieve(
         self,
@@ -42,7 +50,7 @@ class HybridRetriever:
         if not isinstance(top_k, int) or isinstance(top_k, bool) or top_k <= 0:
             raise ValueError("top_k must be a positive integer.")
 
-        candidate_k = max(top_k * 3, top_k)
+        candidate_k = max(self.candidate_k or (top_k * 3), top_k)
 
         # Generate an embedding for the user's query.
         query_embedding_result = self.embedding_service.generate_embeddings(
